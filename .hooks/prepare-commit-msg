@@ -1,0 +1,262 @@
+#!/bin/bash
+
+COMMIT_MSG_FILE=$1
+original_msg=$(cat "$COMMIT_MSG_FILE")
+msg_lower=$(echo "$original_msg" | tr '[:upper:]' '[:lower:]')
+
+jira_url="https://portonics.atlassian.net"
+jira_user="JIRA_USER"
+jira_token="JIRA_API_TOKEN"
+
+# =====================
+# JIRA Ticket Fetch Logic (no regex filtering)
+# =====================
+format_jira_ticket_list() {
+  jql="assignee=currentUser() AND resolution=Unresolved ORDER BY updated DESC"
+
+  curl -s -u "$jira_user:$jira_token" \
+    -G --data-urlencode "jql=$jql" \
+    --data-urlencode "fields=key,summary,status,timetracking" \
+    "$jira_url/rest/api/2/search" | \
+    jq -r '.issues[] | [
+        .key,
+        .fields.status.name,
+        ((.fields.timetracking.remainingEstimate // "–") + " / " + (.fields.timetracking.originalEstimate // "–")),
+        .fields.summary
+      ] | @tsv'
+}
+
+choose_ticket_interactively() {
+  #format_jira_ticket_list | fzf --prompt="Select JIRA ticket: " | cut -d' ' -f1
+  format_jira_ticket_list | fzf --prompt="Select JIRA ticket: " | column -t -s $'\t'
+}
+
+# =====================
+# Prompt user for Ticket ID
+# =====================
+ticket_id=""
+if command -v fzf > /dev/null && command -v jq > /dev/null; then
+  selected_line=$(choose_ticket_interactively)
+
+  if [[ -z "$selected_line" ]]; then
+    echo "⚠️  Ticket selection was cancelled."
+  else
+    clean_line=$(echo "$selected_line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    ticket_id=$(echo "$clean_line" | awk '{print $1}')
+    raw_line=$(format_jira_ticket_list | grep "^$ticket_id")
+
+    if [[ -n "$raw_line" ]]; then
+      IFS=$'\t' read -r ticket_id status remaining_original summary <<< "$raw_line"
+      rem_time=$(echo "$remaining_original" | cut -d'/' -f1 | xargs)
+    fi
+  fi
+else
+  echo "⚠️  Pro tip: Install fzf and jq for an epic, interactive ticket-picking experience! 🎟️✨"
+fi
+
+if [[ -z "$ticket_id" ]]; then
+  echo -n "🫴  Enter JIRA Ticket ID manually: "
+  read input < /dev/tty
+  ticket_id=$(echo "$input" | tr '[:lower:]' '[:upper:]')
+fi
+
+
+# =====================
+# Emoji Picker Based on Message Content
+# =====================
+chosen_emoji="💬"
+
+if echo "$msg_lower" | grep -q "add\|added"; then
+  chosen_emoji="✨"
+elif echo "$msg_lower" | grep -q "fix\|fixed"; then
+  chosen_emoji="🐛"
+elif echo "$msg_lower" | grep -q "remove\|removed\|delete"; then
+  chosen_emoji="⚰️"
+elif echo "$msg_lower" | grep -q "doc\|docs"; then
+  chosen_emoji="📝"
+elif echo "$msg_lower" | grep -q "refactor"; then
+  chosen_emoji="♻️"
+elif echo "$msg_lower" | grep -q "test\|tests"; then
+  chosen_emoji="✅"
+elif echo "$msg_lower" | grep -q "deploy\|release\|publish"; then
+  chosen_emoji="🚀"
+elif echo "$msg_lower" | grep -q "config"; then
+  chosen_emoji="🛠️"
+elif echo "$msg_lower" | grep -q "initial\|init"; then
+  chosen_emoji="🎉"
+elif echo "$msg_lower" | grep -q "update\|updated"; then
+  chosen_emoji="🔧"
+elif echo "$msg_lower" | grep -q "clean"; then
+  chosen_emoji="🧹"
+elif echo "$msg_lower" | grep -q "ci\|cd"; then
+  chosen_emoji="🌀"
+elif echo "$msg_lower" | grep -q "merge"; then
+  chosen_emoji="🔀"
+elif echo "$msg_lower" | grep -q "hotfix"; then
+  chosen_emoji="🔥"
+elif echo "$msg_lower" | grep -q "rollback"; then
+  chosen_emoji="⏪"
+elif echo "$msg_lower" | grep -q "performance\|optimize\|perf"; then
+  chosen_emoji="⚡"
+elif echo "$msg_lower" | grep -q "feature"; then
+  chosen_emoji="🌟"
+elif echo "$msg_lower" | grep -q "build"; then
+  chosen_emoji="🏗️"
+elif echo "$msg_lower" | grep -q "debug"; then
+  chosen_emoji="🔍"
+elif echo "$msg_lower" | grep -q "log\|logging"; then
+  chosen_emoji="🗒️"
+elif echo "$msg_lower" | grep -q "error\|exception"; then
+  chosen_emoji="🚨"
+elif echo "$msg_lower" | grep -q "docker"; then
+  chosen_emoji="🐳"
+elif echo "$msg_lower" | grep -q "pipeline"; then
+  chosen_emoji="🔃"
+elif echo "$msg_lower" | grep -q "script"; then
+  chosen_emoji="📜"
+elif echo "$msg_lower" | grep -q "env"; then
+  chosen_emoji="🌱"
+elif echo "$msg_lower" | grep -q "revert"; then
+  chosen_emoji="⏪"
+elif echo "$msg_lower" | grep -q "bootstrap"; then
+  chosen_emoji="🚧"
+elif echo "$msg_lower" | grep -q "secret"; then
+  chosen_emoji="🔐"
+elif echo "$msg_lower" | grep -q "cache"; then
+  chosen_emoji="💾"
+elif echo "$msg_lower" | grep -q "redis"; then
+  chosen_emoji="🧠"
+elif echo "$msg_lower" | grep -q "db\|database"; then
+  chosen_emoji="🗃️"
+elif echo "$msg_lower" | grep -q "query"; then
+  chosen_emoji="🔍"
+elif echo "$msg_lower" | grep -q "api\|endpoint"; then
+  chosen_emoji="📡"
+elif echo "$msg_lower" | grep -q "sync"; then
+  chosen_emoji="🔄"
+elif echo "$msg_lower" | grep -q "mapping"; then
+  chosen_emoji="🗺️"
+elif echo "$msg_lower" | grep -q "permission"; then
+  chosen_emoji="🔑"
+elif echo "$msg_lower" | grep -q "auth"; then
+  chosen_emoji="🛡️"
+elif echo "$msg_lower" | grep -q "validator"; then
+  chosen_emoji="✔️"
+elif echo "$msg_lower" | grep -q "schema"; then
+  chosen_emoji="📐"
+elif echo "$msg_lower" | grep -q "search"; then
+  chosen_emoji="🔎"
+elif echo "$msg_lower" | grep -q "upload"; then
+  chosen_emoji="📤"
+elif echo "$msg_lower" | grep -q "download"; then
+  chosen_emoji="📥"
+elif echo "$msg_lower" | grep -q "image"; then
+  chosen_emoji="🖼️"
+elif echo "$msg_lower" | grep -q "format"; then
+  chosen_emoji="🧾"
+elif echo "$msg_lower" | grep -q "handler"; then
+  chosen_emoji="🎛️"
+elif echo "$msg_lower" | grep -q "job"; then
+  chosen_emoji="🧑‍🏭"
+elif echo "$msg_lower" | grep -q "task"; then
+  chosen_emoji="📋"
+fi
+
+# =====================
+# Final Formatting
+# =====================
+capitalize_first_letter() {
+  first_char=$(echo "$1" | cut -c1 | tr '[:lower:]' '[:upper:]')
+  rest=$(echo "$1" | cut -c2-)
+  echo "$first_char$rest"
+}
+
+msg_no_emoji=$(echo "$original_msg" | sed -E 's/^[[:space:]]*[^[:alnum:][:space:]]+[[:space:]]*//')
+capitalized_msg=$(capitalize_first_letter "$msg_no_emoji")
+final_msg="$chosen_emoji $capitalized_msg"
+
+if [[ -n "$ticket_id" ]]; then
+  final_msg="[$ticket_id] $final_msg"
+
+  if [[ ! "$ticket_id" =~ ^[A-Z]+-[0-9]+$ ]]; then
+    echo "⚠️  Warning: Ticket ID doesn't match expected format (e.g., ABC-123)"
+  else
+
+    # Get the last commit time (today only)
+    last_commit_epoch=$(git log --since=midnight --pretty=format:"%ct" -n 1)
+
+    if [[ -n "$last_commit_epoch" ]]; then
+      now_epoch=$(date +%s)
+      diff_sec=$((now_epoch - last_commit_epoch))
+
+      h=$((diff_sec / 3600))
+      m=$(((diff_sec % 3600) / 60))
+
+      suggested_time=""
+      [[ $h -gt 0 ]] && suggested_time="${h}h"
+      [[ $m -gt 0 ]] && suggested_time="${suggested_time} ${m}m"
+      suggested_time=$(echo "$suggested_time" | sed 's/^ *//;s/ *$//')
+
+      if [[ -n "$suggested_time" ]]; then
+        echo ""
+        echo "📅  Last commit:  ⏱️  $suggested_time ago"
+        echo "👉  Log it? Or was that another 'meeting'? 🤷‍♂️"
+        echo ""
+      fi
+    fi
+
+    if [[ -n "$rem_time" ]]; then
+      echo "🧮  Remaining time for $ticket_id:  $rem_time"
+    fi
+    echo -n "⏱️  Time spent on this task (e.g., 5m, 30m, 1h, 2h 30m, 1w 2d): "
+
+    read time_spent < /dev/tty
+
+    # Validate time format using regex
+    if [[ -n "$time_spent" && "$time_spent" =~ ^([0-9]+w\s*)?([0-9]+d\s*)?([0-9]+h\s*)?([0-9]+m\s*)?$ ]]; then
+      echo ""
+      echo "⏳  Logging $time_spent to $ticket_id with commit message..."
+
+      comment_json=$(jq -n \
+        --arg time_spent "$time_spent" \
+        --arg msg "$final_msg" \
+        '{
+          "timeSpent": $time_spent,
+          "comment": {
+            "type": "doc",
+            "version": 1,
+            "content": [{
+              "type": "paragraph",
+              "content": [{
+                "type": "text",
+                "text": $msg
+              }]
+            }]
+          }
+        }')
+
+      http_status=$(curl -s -w "%{http_code}" -o /tmp/jira_worklog_response.json \
+        -X POST \
+        -u "$jira_user:$jira_token" \
+        -H "Content-Type: application/json" \
+        -d "$comment_json" \
+        "$jira_url/rest/api/3/issue/$ticket_id/worklog")
+
+      if [[ "$http_status" == "201" ]]; then
+        echo "✅  Logged $time_spent to $ticket_id with message: \"$final_msg\""
+      else
+        echo "❌  Failed to log time to $ticket_id (HTTP $http_status)"
+        echo ""
+        echo "👉  Don't forget to log manually : https://portonics.atlassian.net/browse/$ticket_id"
+      fi
+    else
+      echo "❌  Woops! Missing or invalid time format!"
+      echo ""
+      echo "👉  Don't forget to log manually : https://portonics.atlassian.net/browse/$ticket_id"
+    fi
+  fi
+fi
+
+echo ""
+
+echo "$final_msg" > "$COMMIT_MSG_FILE"
