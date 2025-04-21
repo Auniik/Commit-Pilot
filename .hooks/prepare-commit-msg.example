@@ -4,6 +4,13 @@ COMMIT_MSG_FILE=$1
 original_msg=$(cat "$COMMIT_MSG_FILE")
 msg_lower=$(echo "$original_msg" | tr '[:upper:]' '[:lower:]')
 
+
+if echo "$msg_lower" | grep -Eq '^merge (branch|pull request)'; then
+  echo "🔁  Merge commit detected. Commit message will remain unchanged."
+  echo "🔁 $original_msg" > "$COMMIT_MSG_FILE"
+  exit 0
+fi
+
 jira_url="https://portonics.atlassian.net"
 
 jira_user="__JIRA_USER__"
@@ -40,7 +47,21 @@ parse_issues_to_tsv() {
 # Show ticket list using fzf
 # --------------------------
 select_jira_ticket_from_tsv() {
-  fzf --prompt="🎟️  Select JIRA ticket: " <<< "$1" | column -t -s $'\t'
+  if [[ -z "$1" ]]; then
+    echo ""
+    return
+  fi
+
+  local ticket_lines=$( (echo -e "SKIP\t🚫\tENTER MANUALLY"; echo "$1") | column -t -s $'\t')
+
+  local selected=$(printf "%s\n" "$ticket_lines" | fzf \
+    --prompt="🎟️  Select JIRA ticket: (enter to skip)")
+
+  if [[ -z "$selected" || "$selected" == SKIP* ]]; then
+    echo ""
+  else
+    echo "$selected"
+  fi
 }
 
 # --------------------------
